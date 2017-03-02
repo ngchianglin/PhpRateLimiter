@@ -22,7 +22,7 @@ The state machine in throttle.php will call allow() or disallow() function depen
 
 Application scripts can include these two functions and place their own code in the function bodies. 
 
-Warning, throttle-demo.php uses a HTTP GET parameter ip for testing and simulation purposes. The is no validation for this input and it is not effective for real throttling. The HTTP GEt parameter should be removed in production. 
+Warning, throttle-demo.php uses a HTTP GET parameter ip for testing and simulation purposes. The is no validation for this input and it is not effective for real throttling. The HTTP GET ip parameter should be removed in production. 
 
 Refer to the following for a detailed article on setting up and using this throttling script. 
 [https://www.nighthour.sg/articles/2017/php-rate-limiter-finite-state.html](https://www.nighthour.sg/articles/2017/php-rate-limiter-finite-state.html)
