@@ -14,6 +14,7 @@ The rate limiting logic in throttle.php is implemented using a finite state mach
 Two constants are defined in throttle.php to specify the rate limit
 
 define("THROTTLE_INTERVAL", 60); //in seconds
+
 define("INTERVAL_RATE", 5); //Number allowed in throttle interval. Eg. 5 emails per 60 seconds
 
 The throttle-demo.php demonstrates how to integrate the throttling script into a php application. 
