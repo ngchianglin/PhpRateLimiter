@@ -37,10 +37,7 @@ The maria db table consists of the following
 id, INT the primary key (derived from ip address, ip2long)
 ip, the character reprsentation of ip address (xxx.xxx.xxx.xxx)
 stime, the start time of the throttle interval
-count, counter for this interval
-
-Refer to the following link for detailed article on usage
-https://www.nighthour.sg/articles/2017/php-rate-limiter-finite-state.html
+count, INT counter for this interval
 
 Ng Chiang Lin
 Feb 2017
@@ -62,33 +59,32 @@ disable the display of errors. Errors can be sent to the error log.
 
 function getPDO()
 {
-    $pdo=null;
-    
+    $pdo=null;    
     $driver="mysql";
     $host = 'myhostname.localdomain';
     $db   = 'throttledb1';
     $user = 'throttleuser';
-    $pass = 'mystrongpassword';
+    $pass = 'my secret strong complex password';
     $charset = 'utf8';
     $dsn = "$driver:host=$host;dbname=$db;charset=$charset";
     $opt = [
     PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     PDO::ATTR_EMULATE_PREPARES   => false,
-    PDO::MYSQL_ATTR_SSL_KEY    =>'<location to client key>/client-key.pem',
-    PDO::MYSQL_ATTR_SSL_CERT=>'<location to client cert>/client-cert.pem',
-    PDO::MYSQL_ATTR_SSL_CA    =>'<location to ca cert>/ca-cert.pem'
+    PDO::MYSQL_ATTR_SSL_KEY    =>'<client key path location>/client-key.pem',
+    PDO::MYSQL_ATTR_SSL_CERT=>'<client cert path location>/client-cert.pem',
+    PDO::MYSQL_ATTR_SSL_CA    =>'<client ca cert path location>/ca-cert.pem'
     ];
 
     $pdo = new PDO($dsn, $user, $pass, $opt);
-    
+    //Set the isolation level for the session to serializable
+    $pdo->query('SET SESSION TRANSACTION ISOLATION LEVEL SERIALIZABLE');
     return $pdo;
 }
 
 /* 
    Retrieves the current counter for an ip address in the 
    database. 
-   
    Takes the pdo database object and a int representing the 
    ip address. The int is obtained by applying ip2long()
    to the ip address. Returns false if ip address counter
@@ -99,22 +95,11 @@ function getIPAddressRecord($pdo, $id)
 {
     $result = null; 
     $stmt = null;
-    try
-    {
-       $pdo->beginTransaction();
-       //Prepared statement to prevent SQL injection
-       $stmt = $pdo->prepare('Select id, ip, stime, count from t1 where id = ? '); 
-       $stmt->execute([$id]);
-       $result = $stmt->fetch();
-       $stmt = null;
-       $pdo->commit();
-       
-    }
-    catch(PDOException $e)
-    {//Nothing to roll back. 
-        $stmt=null;
-        error_log("getIPAddressRecord transaction error " . $e ." \n", 0);
-    }
+    //Prepared statement to prevent SQL injection
+    $stmt = $pdo->prepare('Select id, ip, stime, count from t1 where id = ? '); 
+    $stmt->execute([$id]);
+    $result = $stmt->fetch();
+    $stmt = null;
     return $result;
 }
 
@@ -149,94 +134,82 @@ function createIPCounter($pdo, $ip )
 
 /* 
 Increments the counter for an ip address 
-Takes the pdo database object , the id representation of the 
+Takes the pdo database object, the id representation of the 
 ip address(ip2long() apply to ip)
 Wraps in transaction to prevent concurrency issue
-Returns false if the transaction fail, true otherwise.  
+Returns false if the transaction fail or 
+the updated count if successful  
 */
 function updateCount($pdo, $id)
 {
     $stmt = null;
+    $result=null;
     try
     {
         $pdo->beginTransaction();
         $stmt= $pdo->prepare('Update t1 set count = count + 1 where id = ?');
         $stmt->execute([$id]);
+        
+        $stmt = $pdo -> prepare('Select count from t1 where id = ?');
+        $stmt->execute([$id]);
+        $result = $stmt->fetch();
+        
         $pdo->commit();      
+        $stmt = null;
     }
     catch(PDOException $e)
     {
          error_log("Update Count transaction error " . $e ." \n", 0);
          $pdo->rollBack();
          $stmt =null; 
-         return false;
     }
     
-    $stmt = null;
-    return true;
+    if($result)
+    {
+       return $result['count'];
+    }
+    else
+    {        
+       return false;
+    }
 }
 
 
 /* 
-
 Reset to a new throttle Interval 
 Wrap in transaction as there are two updates together
 Takes a pdo database object and the id representing the ip
 address (ip2long() apply to ip address).
-
-Returns true on success.
-
+Returns true on success, false otherwise
 */
 
 function resetThrottleInterval($pdo, $id )
-{
-    $terminate_counter =0;
-    $end=false;
-    $max_retries = 10; 
-    
-    while(!$end)
-    { //Tries the transaction up to 10 times if it 
-      //is initially not successful
-        
-        try
-        {
-            $pdo->beginTransaction();
-            //set a new throttle start interval
-            $stmt1 = $pdo->prepare('Update t1 set stime = CURRENT_TIMESTAMP() where id = ?');
-            $stmt1->execute([$id]);
+{    
+    $stmt=null; 
+
+    try
+    {
+        $pdo->beginTransaction();
+         //set a new throttle start interval
+        $stmt = $pdo->prepare('Update t1 set stime = CURRENT_TIMESTAMP() where id = ?');
+        $stmt->execute([$id]);
             
-            //set the counter to 0
-            $stmt2 = $pdo->prepare('Update t1 set count=0 where id = ?');
-            $stmt2->execute([$id]);
+        //set the counter to 0
+        $stmt = $pdo->prepare('Update t1 set count=0 where id = ?');
+        $stmt->execute([$id]);
           
-            $pdo->commit();
-            //Commited successfully
-            $end = true;            
-            $stmt1=null;
-            $stmt2=null;
-            
-        }
-        catch(PDOException $e)
-        {
-             error_log("resetThrottleInterval transaction error " . $e ." \n", 0);
-             $pdo->rollBack();
-             $stmt1=null;
-             $stmt2=null;
-        }
-               
-        if(!$end)
-        {//Transaction didn't succeed
-           if($terminate_counter > $max_retries)
-           { //Exceed max retries, can be due to high concurrency terminate process
-               error_log("resetThrottleInterval maximum retries, terminating\n", 0);
-               exit(1);
-           }
-          $terminate_counter ++;
-          randSleep(); //random sleep to prevent tight loop
-        }
-        
+        $pdo->commit();
+        //Commited successfully         
+        $stmt=null;
     }
-    
+    catch(PDOException $e)
+    {
+        error_log("resetThrottleInterval transaction error " . $e ." \n", 0);
+        $pdo->rollBack();
+        $stmt=null;
+        return false;
+     }
+     
     return true;
 }
 
@@ -291,7 +264,7 @@ function checkCountWithinRate($count)
 {
     $interval_rate = INTERVAL_RATE ;  
     
-    if($count < $interval_rate && $count >= 0)
+    if($count <= $interval_rate && $count > 0)
     { //check for greater than 0 to prevent
       //possible overflow
         return true;
@@ -302,18 +275,6 @@ function checkCountWithinRate($count)
     }
 }
 
-/* 
-A random micro second sleep function 
-to prevent tight loop taking up too much CPU time
-*/
-
-function randSleep()
-{
-    //Sleep between 100 to 200 milliseconds
-    $milliseconds =  mt_rand(100, 200);
-    $microseconds = $milliseconds * 1000;
-    usleep($microseconds);
-}
 
 
 /*
@@ -365,10 +326,20 @@ function startThrottleStateMachine($remoteip)
                 break;
             case $STATES['IPEXIST']:   
                  //ip counter exists
-                 if(!updateCount($pdo, ip2long($ip)))
-                 {
+                 $newcount = null; 
+                 $newcount = updateCount($pdo, ip2long($ip));
+                 if(!$newcount)
+                 {//Cannot update counter value successfully
+                     error_log("Unable to update IP record count value", 0);
                      exit(1);
                  }
+                 else
+                 {//Set the result to new count
+                  //this will be used by WITHININT state
+                    $result['count'] = $newcount;    
+                 }
+                 
+                 
                  if(checkWithinThrottleInterval( $result['stime'] ) )
                  { //within throttle interval
                      $currentstate = $STATES['WITHININT'];
@@ -406,7 +377,11 @@ function startThrottleStateMachine($remoteip)
 
             case $STATES['EXCEEDINT']:   
                   //exceeds the throttle interval, set a new one
-                   resetThrottleInterval($pdo, ip2long($ip) );
+                   if(!resetThrottleInterval($pdo, ip2long($ip) ))
+                   {
+                       error_log("Unable to create a new throttle interval!",0);
+                       exit(1);
+                   }
                    $result = getIPAddressRecord($pdo ,ip2long($ip)); 
                    if(!$result)
                    {
@@ -430,9 +405,8 @@ function startThrottleStateMachine($remoteip)
                  break;                       
             default:
                 //something is horribly wrong, shouldn't come here
-                error_log("Unknown state terminating \n", 0);
-                exit(1);
-                 
+                error_log("Unknown state terminating\n", 0);
+                exit(1); 
             
         }
         
