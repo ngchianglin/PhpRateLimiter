@@ -24,7 +24,6 @@
 * SOFTWARE.
 */
 
-
 /*
 throttle-demo.php 
 Simple script to demo how to use 
@@ -33,12 +32,18 @@ the php rate limiter, throttle.php
 Refer to the following link for detailed article on usage
 https://www.nighthour.sg/articles/2017/php-rate-limiter-finite-state.html
 
+
 Ng Chiang Lin
 Feb 2017
 
 */
 
-/* Includes the main throttling script with the finite state machine*/
+
+/* 
+Includes the main throttling script with the finite state machine
+Note in production, you may want to place throttle.php into a location outside 
+of the documentroot, perhaps in a php library location
+*/
 require_once 'throttle.php';
 
 
@@ -67,7 +72,7 @@ limit is exceeded.
 function disallow($ip, $result)
 {
     echo "Disallowed : " .$ip . " count: " . $result['count'] .  "<br>\n";
-    exit();
+    exit(1);
 }
 
 
