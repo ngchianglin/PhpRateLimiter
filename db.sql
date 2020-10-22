@@ -28,7 +28,7 @@ use throttledb1;
 
 create table t1
 (
-id INT NOT NULL PRIMARY KEY,
+id BIGINT NOT NULL PRIMARY KEY,
 ip varchar(20),
 stime TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 count INT
